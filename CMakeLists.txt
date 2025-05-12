@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.16)
 project(PbrRenderer LANGUAGES CXX C)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -10,9 +10,15 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
 
-file(GLOB SRCS src/*.cpp)
+file(GLOB SRCS
+    src/*.cpp
+    src/renderer/*.cpp
+)
 
-include_directories(inc)
+include_directories(
+    inc
+    src
+)
 
 link_directories(lib)
 
@@ -20,7 +26,13 @@ add_executable(${PROJECT_NAME} ${SRCS} ${C_SRCS})
 
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 
-    # Libraries
+    SDL3
+)
+
+# Precompiled headers
+target_precompile_headers(
+    ${PROJECT_NAME}
+    PUBLIC src/pch.h
 )
 
 # Shader compilation (glslangValidator -> SPIRV)
