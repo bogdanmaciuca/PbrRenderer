@@ -27,6 +27,7 @@ add_executable(${PROJECT_NAME} ${SRCS} ${C_SRCS})
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 
     SDL3
+    assimp-vc143-mt
 )
 
 # Precompiled headers
