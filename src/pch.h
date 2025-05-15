@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -52,3 +53,4 @@ private:
     std::chrono::steady_clock::time_point m_start;
 };
 
+string ReadFile(const string& path);

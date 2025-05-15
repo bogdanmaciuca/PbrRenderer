@@ -11,3 +11,11 @@ void FatalError(const string& message) {
     SDL_Quit();
 }
 
+string ReadFile(const string& path) {
+    size_t size;
+    char* pData = (char*)SDL_LoadFile(path.c_str(), &size);
+    if (pData == nullptr)
+        FatalError("Could not read file: " + path);
+    return std::string(pData, size);
+}
+
