@@ -14,18 +14,36 @@ Renderer::Renderer(SDL_Window* pWindow, u32 width, u32 height) : m_pWindow(pWind
     m_pSampler = CreateSampler();
 
     const ShaderInfo vertInfo = {
-        .numUniformBuffers  = 1
+        .numUniformBuffers = 3
     };
     const ShaderInfo fragInfo = {
-        .numSamplers        = 3,
-        .numUniformBuffers  = 1
+        .numSamplers       = 3,
+        .numStorageBuffers = 1,
+        .numUniformBuffers = 1
     };
     m_pPipeline = CreateGraphicsPipeline(
         ReadFile("shaders_compiled/basic.vert.spv"), vertInfo,
         ReadFile("shaders_compiled/basic.frag.spv"), fragInfo
     );
 
-    m_MVP.proj = glm::perspective(glm::radians(FOV_DEG), (float)width / height, CAM_NEAR, CAM_FAR);
+    m_proj = glm::perspective(glm::radians(FOV_DEG), (float)width / height, CAM_NEAR, CAM_FAR);
+
+
+    SDL_GPUCommandBuffer* pCmdBuf = SDL_AcquireGPUCommandBuffer(m_pDevice);
+
+    TextureData depthTextureData = {
+        .pPixels = nullptr,
+        .width   = width,
+        .height  = height
+    };
+    m_pDepthTexture = CreateTexture(pCmdBuf, depthTextureData);
+
+    m_pPointLightsBuffer = CreateBuffer(
+        pCmdBuf, nullptr,
+        POINT_LIGHTS_MAX_NUM * sizeof(PointLight),
+        SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ
+    );
+    SDL_SubmitGPUCommandBuffer(pCmdBuf);
 }
 
 Renderer::~Renderer() {
@@ -46,6 +64,9 @@ void Renderer::RenderScene() {
         SDL_SubmitGPUCommandBuffer(pCommandBuffer);
         return;
     }
+    
+    // Fill point light buffer
+    UploadToBuffer(pCommandBuffer, m_pPointLightsBuffer, m_pointLights.data(), m_pointLights.size() * sizeof(PointLight));
 
     // Begin render pass
     SDL_GPUColorTargetInfo colorTargetInfo = {
@@ -54,16 +75,30 @@ void Renderer::RenderScene() {
         .load_op     = SDL_GPU_LOADOP_CLEAR,
         .store_op    = SDL_GPU_STOREOP_STORE
     };
+    //SDL_GPUDepthStencilTargetInfo depthStencilTargetInfo = { 0 };
+    //depthStencilTargetInfo.texture          = m_pDepthTexture;
+    //depthStencilTargetInfo.cycle            = true;
+    //depthStencilTargetInfo.clear_depth      = 1;
+    //depthStencilTargetInfo.clear_stencil    = 0;
+    //depthStencilTargetInfo.load_op          = SDL_GPU_LOADOP_CLEAR;
+    //depthStencilTargetInfo.store_op         = SDL_GPU_STOREOP_STORE;
+    //depthStencilTargetInfo.stencil_load_op  = SDL_GPU_LOADOP_CLEAR;
+    //depthStencilTargetInfo.stencil_store_op = SDL_GPU_STOREOP_STORE;
     SDL_GPURenderPass* pRenderPass = SDL_BeginGPURenderPass(pCommandBuffer, &colorTargetInfo, 1, nullptr);
 
     // Bind pipeline
     SDL_BindGPUGraphicsPipeline(pRenderPass, m_pPipeline);
 
-    // Uniform buffer
-    SDL_PushGPUVertexUniformData(pCommandBuffer, 0, &m_MVP, sizeof(m_MVP));
+    // View-projection Uniforms. NOTE: order matters 0.model, 1.view, 2.projection
+    SDL_PushGPUVertexUniformData(pCommandBuffer, 1, &m_view, sizeof(m_view));
+    SDL_PushGPUVertexUniformData(pCommandBuffer, 2, &m_proj, sizeof(m_proj));
 
+    // Point lights
+    SDL_BindGPUFragmentStorageBuffers(pRenderPass, 0, &m_pPointLightsBuffer, 1);
+
+    // Draw meshes
     for (auto& it : m_meshes) {
-        DrawMesh(it.second, pRenderPass);
+        DrawMesh(it.second, pRenderPass, pCommandBuffer);
     }
 
     SDL_EndGPURenderPass(pRenderPass);
@@ -72,7 +107,7 @@ void Renderer::RenderScene() {
 }
 
 void Renderer::SetViewMatrix(const glm::mat4& viewMat) {
-    m_MVP.view = viewMat;
+    m_view = viewMat;
 }
 
 bool Renderer::CreateMesh(const MeshData& meshData, const string& meshName) {
@@ -123,16 +158,13 @@ Renderer::Mesh* Renderer::GetMesh(const string& meshName) {
 }
 
 bool Renderer::AddLight(const PointLight& light, const string& lightName) {
-    if (m_pointLights.contains(lightName))
-        return false;
-    m_pointLights[lightName] = light;
+    m_pointLights.push_back(light);
     return true;
 }
 
 Renderer::PointLight* Renderer::GetLight(const string& lightName) {
-    if (!m_pointLights.contains(lightName))
-        return nullptr;
-    return &m_pointLights[lightName];
+    FatalError("Not implemented yet: GetLight()");
+    return nullptr;
 }
 
 SDL_GPUShader* Renderer::CreateShader(const string& source, SDL_GPUShaderStage shaderStage, const ShaderInfo& shaderInfo) {
@@ -178,6 +210,8 @@ SDL_GPUGraphicsPipeline* Renderer::CreateGraphicsPipeline(const string& vertSrc,
     SDL_GPUGraphicsPipelineCreateInfo pipelineCreateInfo = {};
     pipelineCreateInfo.target_info.num_color_targets                 = 1;
     pipelineCreateInfo.target_info.color_target_descriptions         = &colorTargetDesc;
+    pipelineCreateInfo.target_info.has_depth_stencil_target          = true;
+    pipelineCreateInfo.target_info.depth_stencil_format              = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
     pipelineCreateInfo.vertex_input_state.num_vertex_buffers         = 1;
     pipelineCreateInfo.vertex_input_state.vertex_buffer_descriptions = &vertBufferDesc;
     pipelineCreateInfo.vertex_input_state.num_vertex_attributes      = s_vertexAttribs.size();
@@ -185,6 +219,12 @@ SDL_GPUGraphicsPipeline* Renderer::CreateGraphicsPipeline(const string& vertSrc,
     pipelineCreateInfo.primitive_type                                = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pipelineCreateInfo.vertex_shader                                 = pVertShader;
     pipelineCreateInfo.fragment_shader                               = pFragShader;
+    pipelineCreateInfo.rasterizer_state.cull_mode                    = SDL_GPU_CULLMODE_NONE;
+    pipelineCreateInfo.rasterizer_state.front_face                   = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+    pipelineCreateInfo.depth_stencil_state.enable_depth_test         = true;
+    pipelineCreateInfo.depth_stencil_state.enable_depth_write        = true;
+    pipelineCreateInfo.depth_stencil_state.compare_op                = SDL_GPU_COMPAREOP_LESS;
+    pipelineCreateInfo.depth_stencil_state.write_mask                = 0XFF;
 
     SDL_GPUGraphicsPipeline* pPipeline = SDL_CreateGPUGraphicsPipeline(m_pDevice, &pipelineCreateInfo);
     if (pPipeline == nullptr)
@@ -205,7 +245,7 @@ SDL_GPUTransferBuffer* Renderer::CreateUploadBuffer(u32 size) {
     return pTransferBuffer;
 }
 
-SDL_GPUBuffer* Renderer::CreateBuffer(SDL_GPUCommandBuffer* pCmdBuf, const void* pData, u32 dataSize, u32 usage) {
+SDL_GPUBuffer* Renderer::CreateBuffer(SDL_GPUCommandBuffer* pCmdBuf, const void* pData, u32 dataSize, SDL_GPUBufferUsageFlags usage) {
     SDL_GPUBuffer* pBuffer;
     SDL_GPUBufferCreateInfo bufCreateInfo = {
         .usage = usage,
@@ -217,7 +257,8 @@ SDL_GPUBuffer* Renderer::CreateBuffer(SDL_GPUCommandBuffer* pCmdBuf, const void*
     if (pBuffer == nullptr)
         Error("Could not create buffer");
 
-    UploadToBuffer(pCmdBuf, pBuffer, pData, dataSize);
+    if (pData != nullptr)
+        UploadToBuffer(pCmdBuf, pBuffer, pData, dataSize);
 
     return pBuffer;
 }
@@ -260,13 +301,13 @@ SDL_GPUSampler* Renderer::CreateSampler() {
     return pSampler;
 }
 
-SDL_GPUTexture* Renderer::CreateTexture(SDL_GPUCommandBuffer* pCmdBuf, const TextureData& texData) {
+SDL_GPUTexture* Renderer::CreateTexture(SDL_GPUCommandBuffer* pCmdBuf, const TextureData& texData, SDL_GPUTextureType type, SDL_GPUTextureUsageFlags usage) {
     SDL_GPUTexture* pTexture;
 
     SDL_GPUTextureCreateInfo createInfo = {
-        .type                 = SDL_GPU_TEXTURETYPE_2D,
+        .type                 = type,
         .format               = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-        .usage                = SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        .usage                = usage,
         .width                = texData.width,
         .height               = texData.height,
         .layer_count_or_depth = 1,
@@ -277,7 +318,8 @@ SDL_GPUTexture* Renderer::CreateTexture(SDL_GPUCommandBuffer* pCmdBuf, const Tex
     if (pTexture == nullptr)
         Error("Could not create texture");
 
-    UploadToTexture(pCmdBuf, pTexture, texData);
+    if (texData.pPixels != nullptr)
+        UploadToTexture(pCmdBuf, pTexture, texData);
 
     return pTexture;
 }
@@ -313,7 +355,7 @@ void Renderer::UploadToTexture(SDL_GPUCommandBuffer* pCmdBuf, SDL_GPUTexture* pT
     SDL_EndGPUCopyPass(pCopyPass);
 }
 
-void Renderer::DrawMesh(const Mesh& mesh, SDL_GPURenderPass* pRenderPass) {
+void Renderer::DrawMesh(const Mesh& mesh, SDL_GPURenderPass* pRenderPass, SDL_GPUCommandBuffer* pCmdBuf) {
     // Binding sampler-texture pairs
     array<SDL_GPUTextureSamplerBinding, TextureCount> samplerBindings;
     for (i32 i = 0; i < TextureCount; i++) {
@@ -338,6 +380,11 @@ void Renderer::DrawMesh(const Mesh& mesh, SDL_GPURenderPass* pRenderPass) {
         .offset = 0
     };
     SDL_BindGPUIndexBuffer(pRenderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+
+    // Model uniform
+    glm::mat4 model(1.0f);
+    //model = glm::translate(model, mesh.pos);
+    SDL_PushGPUVertexUniformData(pCmdBuf, 0, &model, sizeof(model));
 
     SDL_DrawGPUIndexedPrimitives(pRenderPass, mesh.indicesNum, 1, 0, 0, 0);
 }

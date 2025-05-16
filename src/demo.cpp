@@ -1,9 +1,11 @@
 /*
  * TODO:
- * - initialize mesh in Renderer::CreateMesh() [done|not tested]
- * - assimp PBR loading [done|not tested]
  * - forward rendering
- * - RAII abstractions for GPU objects
+ *   - extend TextureData
+ *   - get depth buffer working
+ *   - point lights (storage buffers)
+ * - RAII/Modern C++ abstractions for GPU objects
+ * - storing rotation in the Mesh class
  */
 #include "pch.h"
 #include "platform.h"
@@ -42,7 +44,7 @@ public:
     }
 private:
     glm::vec3 m_pos = glm::vec3(0.0f);
-    float m_yaw = 0.0f, m_pitch = 0.0f;
+    float m_yaw = 0.0f, m_pitch = 0.0f; // Degrees
     glm::vec3 m_front = glm::vec3(0.0f);
     static constexpr glm::vec3 s_up = glm::vec3(0, 1, 0);
     static constexpr float s_speed = 0.002f;
@@ -58,7 +60,8 @@ Renderer::MeshData LoadMesh(const string& path) {
         aiProcess_Triangulate |
         aiProcess_FlipUVs |
         aiProcess_OptimizeGraph |
-        aiProcess_GenNormals
+        aiProcess_GenNormals |
+        aiProcess_FixInfacingNormals
     );
 
     if (pScene == nullptr || pScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !pScene->mRootNode)
@@ -139,6 +142,7 @@ int main() {
 
     Renderer::MeshData meshData = LoadMesh("res/axe/wooden_axe_03_1k.gltf");
     renderer.CreateMesh(meshData, "axe");
+    renderer.AddLight(Renderer::PointLight{ .pos = glm::vec3(1, 1, 0.5) }, "");
 
     Timer frameTimer;
     float renderAccumulator = 0.0f;

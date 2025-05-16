@@ -32,9 +32,13 @@ public:
         array<TextureData, TextureCount> texturesData;
     };
 
+    enum {
+        POINT_LIGHTS_MAX_NUM = 16
+    };
+
     struct PointLight {
         glm::vec3 pos;
-        glm::vec3 color;
+        glm::vec3 color = glm::vec3(1.0f);
     };
 
     struct Mesh {
@@ -54,6 +58,7 @@ public:
     bool CreateMesh(const MeshData& meshData, const string& meshName);
     bool DeleteMesh(const string& meshName);
     Mesh* GetMesh(const string& meshName);
+    // TODO: use the lightName parameter
     bool AddLight(const PointLight& light, const string& lightName);
     PointLight* GetLight(const string& lightName);
 private:
@@ -63,24 +68,23 @@ private:
         u32 numStorageBuffers  = 0;
         u32 numUniformBuffers  = 0;
     };
-    struct ModelViewProj {
-        glm::mat4 model = glm::mat4(1);
-        glm::mat4 view  = glm::mat4(1);
-        glm::mat4 proj  = glm::mat4(1);
-    };
     struct Camera {
         glm::vec3 m_pos = glm::vec3(0, 0, 0);
-        float m_yaw = 0, m_pitch = 0;
+        float m_yaw     = 0;
+        float m_pitch   = 0;
     };
 
-    ModelViewProj m_MVP;
+    glm::mat4 m_view = glm::mat4(1);
+    glm::mat4 m_proj = glm::mat4(1);
     umap<string, Mesh> m_meshes;
-    umap<string, PointLight> m_pointLights;
+    vector<PointLight> m_pointLights;
 
-    SDL_Window* m_pWindow;
-    SDL_GPUDevice* m_pDevice;
+    SDL_Window*              m_pWindow;
+    SDL_GPUDevice*           m_pDevice;
     SDL_GPUGraphicsPipeline* m_pPipeline;
-    SDL_GPUSampler* m_pSampler;
+    SDL_GPUSampler*          m_pSampler;
+    SDL_GPUTexture*          m_pDepthTexture;
+    SDL_GPUBuffer*           m_pPointLightsBuffer;
 
     static constexpr std::array<SDL_GPUVertexAttribute, 3> s_vertexAttribs = {
         SDL_GPUVertexAttribute{
@@ -106,13 +110,13 @@ private:
     SDL_GPUShader* CreateShader(const string& source, SDL_GPUShaderStage shaderStage, const ShaderInfo& shaderInfo);
     SDL_GPUGraphicsPipeline* CreateGraphicsPipeline(const string& vertSrc, const ShaderInfo& vertInfo, const string& fragSrc, const ShaderInfo& fragInfo);
     SDL_GPUTransferBuffer* CreateUploadBuffer(u32 size);
-    SDL_GPUBuffer* CreateBuffer(SDL_GPUCommandBuffer* pCmdBuf, const void* pData, u32 dataSize, u32 usage);
+    SDL_GPUBuffer* CreateBuffer(SDL_GPUCommandBuffer* pCmdBuf, const void* pData, u32 dataSize, SDL_GPUBufferUsageFlags usage);
     void UploadToBuffer(SDL_GPUCommandBuffer* pCmdBuf, SDL_GPUBuffer* pBuffer, const void* data, u32 dataSize);
     SDL_GPUSampler* CreateSampler();
-    SDL_GPUTexture* CreateTexture(SDL_GPUCommandBuffer* pCmdBuf, const TextureData& texData);
+    SDL_GPUTexture* CreateTexture(SDL_GPUCommandBuffer* pCmdBuf, const TextureData& texData, SDL_GPUTextureType type = SDL_GPU_TEXTURETYPE_2D, SDL_GPUTextureUsageFlags usage = SDL_GPU_TEXTUREUSAGE_SAMPLER);
     void UploadToTexture(SDL_GPUCommandBuffer* pCmdBuf, SDL_GPUTexture* pTexture, const TextureData& texData);
 
-    void DrawMesh(const Mesh& mesh, SDL_GPURenderPass* pRenderPass);
+    void DrawMesh(const Mesh& mesh, SDL_GPURenderPass* pRenderPass, SDL_GPUCommandBuffer* pCmdBuf);
 };
 
 
