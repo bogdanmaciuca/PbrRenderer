@@ -1,10 +1,9 @@
 /*
  * TODO:
  * - forward rendering
- *   - extend TextureData
- *   - get depth buffer working
  *   - point lights (storage buffers)
- * - RAII/Modern C++ abstractions for GPU objects
+ *   - normal maps, tangent space
+ *   - PBR equations
  * - storing rotation in the Mesh class
  */
 #include "pch.h"
@@ -48,11 +47,11 @@ private:
     glm::vec3 m_front = glm::vec3(0.0f);
     static constexpr glm::vec3 s_up = glm::vec3(0, 1, 0);
     static constexpr float s_speed = 0.002f;
-    static constexpr float s_sensitivity = 0.2f;
+    static constexpr float s_sensitivity = 0.35f;
 };
 
-Renderer::MeshData LoadMesh(const string& path) {
-    Renderer::MeshData meshData;
+Renderer::MeshCreateInfo LoadMesh(const string& path) {
+    Renderer::MeshCreateInfo meshCreateInfo;
 
     Assimp::Importer importer;
     const aiScene *pScene = importer.ReadFile(
@@ -70,21 +69,21 @@ Renderer::MeshData LoadMesh(const string& path) {
     SDL_assert(pScene->mNumMeshes == 1);
     SDL_assert(pScene->mMeshes[0]->mTextureCoords[0] != nullptr);
 
-    meshData.vertices.resize(pScene->mMeshes[0]->mNumVertices);
-    meshData.indices.resize(pScene->mMeshes[0]->mNumFaces * 3);
+    meshCreateInfo.vertices.resize(pScene->mMeshes[0]->mNumVertices);
+    meshCreateInfo.indices.resize(pScene->mMeshes[0]->mNumFaces * 3);
 
     for (i32 i = 0; i < pScene->mMeshes[0]->mNumVertices; i++) {
-        meshData.vertices[i].pos = glm::vec3(
+        meshCreateInfo.vertices[i].pos = glm::vec3(
             pScene->mMeshes[0]->mVertices[i].x,
             pScene->mMeshes[0]->mVertices[i].y,
             pScene->mMeshes[0]->mVertices[i].z
         );
-        meshData.vertices[i].normal = glm::vec3(
+        meshCreateInfo.vertices[i].normal = glm::vec3(
             pScene->mMeshes[0]->mNormals[i].x,
             pScene->mMeshes[0]->mNormals[i].y,
             pScene->mMeshes[0]->mNormals[i].z
         );
-        meshData.vertices[i].texCoord = glm::vec3(
+        meshCreateInfo.vertices[i].texCoord = glm::vec3(
             pScene->mMeshes[0]->mTextureCoords[0][i].x,
             pScene->mMeshes[0]->mTextureCoords[0][i].y,
             pScene->mMeshes[0]->mTextureCoords[0][i].z
@@ -93,9 +92,9 @@ Renderer::MeshData LoadMesh(const string& path) {
 
     for (i32 i = 0; i < pScene->mMeshes[0]->mNumFaces; i++) {
         SDL_assert(pScene->mMeshes[0]->mFaces[i].mNumIndices == 3);
-        meshData.indices[i * 3 + 0] = pScene->mMeshes[0]->mFaces[i].mIndices[0];
-        meshData.indices[i * 3 + 1] = pScene->mMeshes[0]->mFaces[i].mIndices[1];
-        meshData.indices[i * 3 + 2] = pScene->mMeshes[0]->mFaces[i].mIndices[2];
+        meshCreateInfo.indices[i * 3 + 0] = pScene->mMeshes[0]->mFaces[i].mIndices[0];
+        meshCreateInfo.indices[i * 3 + 1] = pScene->mMeshes[0]->mFaces[i].mIndices[1];
+        meshCreateInfo.indices[i * 3 + 2] = pScene->mMeshes[0]->mFaces[i].mIndices[2];
     }
 
     SDL_assert(pScene->mNumMaterials >= 1);
@@ -126,23 +125,24 @@ Renderer::MeshData LoadMesh(const string& path) {
         int width, height, channelNum;
         u8* pPixels = stbi_load(texturePaths[i].c_str(), &width, &height, &channelNum, 4);
         SDL_assert(pPixels != nullptr);
-        meshData.texturesData[i].width   = width;
-        meshData.texturesData[i].height  = height;
-        meshData.texturesData[i].pPixels = pPixels;
+        meshCreateInfo.texturesData[i].width   = width;
+        meshCreateInfo.texturesData[i].height  = height;
+        meshCreateInfo.texturesData[i].pPixels = pPixels;
     }
 
-    return meshData;
+    return meshCreateInfo;
 }
 
 int main() {
     Platform platform("PBR Renderer", WND_W, WND_H);
-    Renderer renderer(platform.GetSDLWindow(), WND_W, WND_H);
+    Renderer& renderer = Renderer::GetInstance();
+    renderer.Initialize(platform.GetSDLWindow(), WND_W, WND_H);
 
     Camera camera;
 
-    Renderer::MeshData meshData = LoadMesh("res/axe/wooden_axe_03_1k.gltf");
-    renderer.CreateMesh(meshData, "axe");
-    renderer.AddLight(Renderer::PointLight{ .pos = glm::vec3(1, 1, 0.5) }, "");
+    Renderer::MeshCreateInfo meshCreateInfo = LoadMesh("res/axe/wooden_axe_03_1k.gltf");
+    renderer.CreateMesh(meshCreateInfo, "axe");
+    renderer.AddLight(Renderer::PointLight{ .pos = glm::vec3(1, 1, 0.5) });
 
     Timer frameTimer;
     float renderAccumulator = 0.0f;

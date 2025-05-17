@@ -9,6 +9,7 @@
 #include <array>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
