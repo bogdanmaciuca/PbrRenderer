@@ -2,7 +2,7 @@
  * TODO:
  * - forward rendering
  *   - point lights (storage buffers)
- *   - normal maps, tangent space
+ *   - TBN matrix, tangent and bitangent attributes
  *   - PBR equations
  * - storing rotation in the Mesh class
  */
@@ -19,6 +19,9 @@ public:
     glm::mat4 GetViewMatrix() {
         return glm::lookAt(m_pos, m_pos + m_front, s_up);
     }
+    glm::vec3 GetPos() {
+        return m_pos;
+    }
     void MoveForward(float deltaTime) {
         m_pos += m_front * s_speed * deltaTime;
     }
@@ -26,10 +29,10 @@ public:
         m_pos -= m_front * s_speed * deltaTime;
     }
     void MoveLeft(float deltaTime) {
-        m_pos -= glm::cross(m_front, s_up) * s_speed * deltaTime;
+        m_pos -= glm::normalize(glm::cross(m_front, s_up)) * s_speed * deltaTime;
     }
     void MoveRight(float deltaTime) {
-        m_pos += glm::cross(m_front, s_up) * s_speed * deltaTime;
+        m_pos += glm::normalize(glm::cross(m_front, s_up)) * s_speed * deltaTime;
     }
     void ProcessMouse(float deltaX, float deltaY) {
         m_yaw += deltaX * s_sensitivity;
@@ -46,7 +49,7 @@ private:
     float m_yaw = 0.0f, m_pitch = 0.0f; // Degrees
     glm::vec3 m_front = glm::vec3(0.0f);
     static constexpr glm::vec3 s_up = glm::vec3(0, 1, 0);
-    static constexpr float s_speed = 0.002f;
+    static constexpr float s_speed = 0.001f;
     static constexpr float s_sensitivity = 0.35f;
 };
 
@@ -57,10 +60,9 @@ Renderer::MeshCreateInfo LoadMesh(const string& path) {
     const aiScene *pScene = importer.ReadFile(
         path,
         aiProcess_Triangulate |
+        aiProcess_CalcTangentSpace |
         aiProcess_FlipUVs |
-        aiProcess_OptimizeGraph |
-        aiProcess_GenNormals |
-        aiProcess_FixInfacingNormals
+        aiProcess_OptimizeGraph
     );
 
     if (pScene == nullptr || pScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !pScene->mRootNode)
@@ -83,10 +85,19 @@ Renderer::MeshCreateInfo LoadMesh(const string& path) {
             pScene->mMeshes[0]->mNormals[i].y,
             pScene->mMeshes[0]->mNormals[i].z
         );
-        meshCreateInfo.vertices[i].texCoord = glm::vec3(
+        meshCreateInfo.vertices[i].tangent = glm::vec3(
+            pScene->mMeshes[0]->mTangents[i].x,
+            pScene->mMeshes[0]->mTangents[i].y,
+            pScene->mMeshes[0]->mTangents[i].z
+        );
+        meshCreateInfo.vertices[i].bitangent = glm::vec3(
+            pScene->mMeshes[0]->mBitangents[i].x,
+            pScene->mMeshes[0]->mBitangents[i].y,
+            pScene->mMeshes[0]->mBitangents[i].z
+        );
+        meshCreateInfo.vertices[i].texCoord = glm::vec2(
             pScene->mMeshes[0]->mTextureCoords[0][i].x,
-            pScene->mMeshes[0]->mTextureCoords[0][i].y,
-            pScene->mMeshes[0]->mTextureCoords[0][i].z
+            pScene->mMeshes[0]->mTextureCoords[0][i].y
         );
     }
 
@@ -140,9 +151,9 @@ int main() {
 
     Camera camera;
 
-    Renderer::MeshCreateInfo meshCreateInfo = LoadMesh("res/axe/wooden_axe_03_1k.gltf");
+    Renderer::MeshCreateInfo meshCreateInfo = LoadMesh("C:/Users/Bogdan/Documents/C_Projects/PbrRenderer/res/axe/wooden_axe_03_1k.gltf");
     renderer.CreateMesh(meshCreateInfo, "axe");
-    renderer.AddLight(Renderer::PointLight{ .pos = glm::vec3(1, 1, 0.5) });
+    renderer.SetLightPos(Renderer::Vec3(1, 1, 1));
 
     Timer frameTimer;
     float renderAccumulator = 0.0f;
@@ -182,6 +193,8 @@ int main() {
                 camera.MoveRight(deltaTime);
 
             renderer.SetViewMatrix(camera.GetViewMatrix());
+
+            renderer.SetCameraPos(camera.GetPos());
         }
     }
 }

@@ -24,14 +24,13 @@ void Renderer::Initialize(SDL_Window* pWindow, u32 width, u32 height) {
     const GfxPipelineCreateInfo pipelineCreateInfo = {
         .vertShaderCreateInfo = {
             .stage  = SDL_GPU_SHADERSTAGE_VERTEX,
-            .source = ReadFile("shaders_compiled/basic.vert.spv"),
+            .source = ReadFile("C:/Users/Bogdan/Documents/C_Projects/PbrRenderer/shaders_compiled/basic.vert.spv"),
             .numUniformBuffers = 3
         },
         .fragShaderCreateInfo = {
             .stage  = SDL_GPU_SHADERSTAGE_FRAGMENT,
-            .source = ReadFile("shaders_compiled/basic.frag.spv"),
+            .source = ReadFile("C:/Users/Bogdan/Documents/C_Projects/PbrRenderer/shaders_compiled/basic.frag.spv"),
             .numSamplers       = 3,
-            .numStorageBuffers = 1,
             .numUniformBuffers = 1
         }
     };
@@ -48,12 +47,6 @@ void Renderer::Initialize(SDL_Window* pWindow, u32 width, u32 height) {
         depthTextureCreateInfo.data.height = height;
 
         m_depthTexture.Initialize(depthTextureCreateInfo);
-
-        m_pointLightsBuffer.Initialize(
-            pCmdBuf,
-            SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
-            POINT_LIGHTS_MAX_NUM * sizeof(PointLight)
-        );
     });
 }
 
@@ -76,9 +69,6 @@ void Renderer::RenderScene() {
         return;
     }
     
-    // Fill point light buffer
-    m_pointLightsBuffer.Upload(pCmdBuf, m_pointLights.data(), sizeof(PointLight) * m_pointLights.size());
-
     // Begin render pass
     SDL_GPUColorTargetInfo colorTargetInfo = {
         .texture = pSwapchainTexture,
@@ -103,10 +93,9 @@ void Renderer::RenderScene() {
     // View-projection Uniforms. NOTE: order matters 0.model, 1.view, 2.projection
     SDL_PushGPUVertexUniformData(pCmdBuf, 1, &m_view, sizeof(m_view));
     SDL_PushGPUVertexUniformData(pCmdBuf, 2, &m_proj, sizeof(m_proj));
-
-    // Point lights
-    SDL_GPUBuffer* pPointLightsBufferHandle = m_pointLightsBuffer.GetHandle();
-    SDL_BindGPUFragmentStorageBuffers(pRenderPass, 0, &pPointLightsBufferHandle, 1);
+    
+    // Point light position uniform
+    SDL_PushGPUFragmentUniformData(pCmdBuf, 0, &m_lightingData, sizeof(m_lightingData));
 
     // Draw meshes
     for (auto& it : m_meshes) {
@@ -118,7 +107,7 @@ void Renderer::RenderScene() {
     SDL_SubmitGPUCommandBuffer(pCmdBuf);
 }
 
-void Renderer::SetViewMatrix(const glm::mat4& viewMat) {
+void Renderer::SetViewMatrix(const Mat4& viewMat) {
     m_view = viewMat;
 }
 
@@ -173,15 +162,18 @@ bool Renderer::DeleteMesh(const string& meshName) {
     return true;
 }
 
-glm::mat4* Renderer::GetMeshTransform(const string& meshName) {
+Renderer::Mat4* Renderer::GetMeshTransform(const string& meshName) {
     if (!m_meshes.contains(meshName))
         return nullptr;
     return &m_meshes[meshName].transform;
 }
 
-bool Renderer::AddLight(const PointLight& light) {
-    m_pointLights.push_back(light);
-    return true;
+void Renderer::SetLightPos(const Vec3& pos) {
+    m_lightingData.lightPos = pos;
+}
+
+void Renderer::SetCameraPos(const Vec3& pos) {
+    m_lightingData.camPos = pos;
 }
 
 void Renderer::Shader::Initialize(const ShaderCreateInfo& createInfo) {
@@ -218,7 +210,6 @@ void Renderer::GfxPipeline::Initialize(const GfxPipelineCreateInfo& createInfo) 
     fragShader.Initialize(createInfo.fragShaderCreateInfo);
 
     SDL_GPUColorTargetDescription colorTargetDesc = {};
-    SDL_Log("%p", GetDevice());
     colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(GetDevice(), GetWindow());
     colorTargetDesc.blend_state.enable_blend   = true;
     colorTargetDesc.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
@@ -449,7 +440,7 @@ void Renderer::DrawMesh(const Mesh& mesh, SDL_GPURenderPass* pRenderPass, SDL_GP
     SDL_BindGPUIndexBuffer(pRenderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
     // Model uniform
-    glm::mat4 model(1.0f);
+    Mat4 model(1.0f);
     //model = glm::translate(model, mesh.pos);
     SDL_PushGPUVertexUniformData(pCmdBuf, 0, &model, sizeof(model));
 

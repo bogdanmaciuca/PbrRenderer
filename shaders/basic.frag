@@ -24,7 +24,7 @@ void main() {
 
     vec3 norm = normalize(texture(samplerNormal, oTexCoord).rgb * 2.0 - 1.0);
 
-    vec3 lightDir = oTBN * normalize(uLightPos - oFragPos);
+    vec3 lightDir = normalize(oTBN * uLightPos - oTBN * oFragPos);
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuse = diff * lightColor;
 

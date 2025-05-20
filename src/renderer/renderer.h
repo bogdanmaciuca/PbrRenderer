@@ -14,10 +14,17 @@ public:
     Renderer(const Renderer&) = delete;
     void operator=(const Renderer&) = delete;
 
+    using Vec2 = glm::vec2;
+    using Vec3 = glm::vec3;
+    using Vec4 = glm::vec4;
+    using Mat4 = glm::mat4;
+
     struct Vertex {
-        glm::vec3 pos;
-        glm::vec3 normal;
-        glm::vec2 texCoord;
+        Vec3 pos;
+        Vec3 normal;
+        Vec3 tangent;
+        Vec3 bitangent;
+        Vec2 texCoord;
     };
     using Index = u32;
 
@@ -40,14 +47,9 @@ public:
         array<TextureData, TextureCount> texturesData;
     };
 
-    enum {
-        POINT_LIGHTS_MAX_NUM = 16
-    };
-
-    struct PointLight {
-        glm::vec3 pos;
-        glm::vec3 color = glm::vec3(1.0f);
-        glm::vec2 padding;
+    struct LightingData {
+        Vec3 lightPos;
+        Vec3 camPos;
     };
 
     void Initialize(SDL_Window* pWindow, u32 width, u32 height);
@@ -57,7 +59,8 @@ public:
     bool CreateMesh(const MeshCreateInfo& createInfo, const string& meshName);
     bool DeleteMesh(const string& meshName);
     glm::mat4* GetMeshTransform(const string& meshName);
-    bool AddLight(const PointLight& light);
+    void SetLightPos(const Vec3& pos);
+    void SetCameraPos(const Vec3& pos);
 private:
     struct ShaderCreateInfo {
         SDL_GPUShaderStage stage;
@@ -153,20 +156,16 @@ private:
         array<Texture, TextureCount> textures;
     };
 
-    //inline static SDL_Window*    s_pWindow;
-    //inline static SDL_GPUDevice* s_pDevice;
-
     glm::mat4 m_view = glm::mat4(1);
     glm::mat4 m_proj = glm::mat4(1);
     umap<string, Mesh> m_meshes;
-    vector<PointLight> m_pointLights;
+    LightingData m_lightingData;
 
     GfxPipeline m_pipeline;
     Sampler     m_sampler;
     Texture     m_depthTexture;
-    Buffer      m_pointLightsBuffer;
 
-    static constexpr std::array<SDL_GPUVertexAttribute, 3> s_vertexAttribs = {
+    static constexpr std::array<SDL_GPUVertexAttribute, 5> s_vertexAttribs = {
         SDL_GPUVertexAttribute{
             .location = 0,
             .buffer_slot = 0,
@@ -181,6 +180,18 @@ private:
         },
         SDL_GPUVertexAttribute{
             .location = 2,
+            .buffer_slot = 0,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .offset = offsetof(Vertex, tangent)
+        },
+        SDL_GPUVertexAttribute{
+            .location = 3,
+            .buffer_slot = 0,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .offset = offsetof(Vertex, bitangent)
+        },
+        SDL_GPUVertexAttribute{
+            .location = 4,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
             .offset = offsetof(Vertex, texCoord)
