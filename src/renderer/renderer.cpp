@@ -61,6 +61,13 @@ Renderer::~Renderer() {
     SDL_DestroyGPUDevice(GetDevice());
 }
 
+SDL_GPUDevice* Renderer::GetDevicePtr() {
+    return GetDevice();
+}
+SDL_GPUTextureFormat Renderer::GetColorTargetFormat() {
+    return SDL_GetGPUSwapchainTextureFormat(GetDevice(), GetWindow());
+}
+
 void Renderer::HandleResize(u32 newWidth, u32 newHeight) {
     UpdateProjection(newWidth, newHeight);
 
@@ -76,9 +83,15 @@ void Renderer::HandleResize(u32 newWidth, u32 newHeight) {
     });
 }
 
-void Renderer::RenderScene() {
+void Renderer::RenderFrame() {
     SDL_GPUCommandBuffer* pCmdBuf = SDL_AcquireGPUCommandBuffer(GetDevice());
 
+    // ImGui
+    ImDrawData* pDrawData = ImGui::GetDrawData();
+    if (pDrawData != nullptr)
+        ImGui_ImplSDLGPU3_PrepareDrawData(pDrawData, pCmdBuf);
+
+    // Copy pass for updating fragment shader frame data
     UpdateFragmentShaderFrameData(pCmdBuf);
 
     // Get swapchain texture
@@ -126,6 +139,9 @@ void Renderer::RenderScene() {
     // Draw meshes
     for (auto& it : m_meshes)
         DrawMesh(it.second, pRenderPass, pCmdBuf);
+
+    if (pDrawData != nullptr)
+        ImGui_ImplSDLGPU3_RenderDrawData(pDrawData, pCmdBuf, pRenderPass);
 
     SDL_EndGPURenderPass(pRenderPass);
 

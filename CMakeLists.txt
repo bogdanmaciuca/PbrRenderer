@@ -13,6 +13,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
 file(GLOB SRCS
     src/*.cpp
     src/renderer/*.cpp
+    src/imgui/*.cpp
 )
 
 include_directories(

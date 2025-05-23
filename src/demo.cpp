@@ -27,6 +27,15 @@ int main() {
         renderer.HandleResize(evt.window.data1, evt.window.data2);
     });
 
+    ImGui::CreateContext();
+    ImGuiIO& imguiIO = ImGui::GetIO();
+    ImGui_ImplSDL3_InitForSDLGPU(platform.GetSDLWindow());
+    ImGui_ImplSDLGPU3_InitInfo imguiInitInfo = {
+        .Device = renderer.GetDevicePtr(),
+        .ColorTargetFormat = renderer.GetColorTargetFormat()
+    };
+    ImGui_ImplSDLGPU3_Init(&imguiInitInfo);
+
     Camera camera;
 
     Renderer::MeshCreateInfo meshCreateInfo = LoadMesh("C:/Users/Bogdan/Documents/C_Projects/PbrRenderer/res/axe/wooden_axe_03_1k.gltf");
@@ -54,7 +63,14 @@ int main() {
                 .pos = Renderer::Vec3(0, sin(angle), cos(angle))
             };
             renderer.PushPointLight(light);
-            renderer.RenderScene();
+
+            //ImGui_ImplSDLGPU3_NewFrame();
+            //ImGui_ImplSDL3_NewFrame();
+            //ImGui::NewFrame();
+            //ImGui::ShowDemoWindow();
+            //ImGui::Render();
+
+            renderer.RenderFrame();
         }
         else {
             angle += deltaTime * 0.001f;

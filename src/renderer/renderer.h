@@ -56,8 +56,10 @@ public:
 
     void Initialize(SDL_Window* pWindow, u32 width, u32 height);
     ~Renderer();
+    SDL_GPUDevice* GetDevicePtr();
+    SDL_GPUTextureFormat GetColorTargetFormat();
     void HandleResize(u32 newWidth, u32 newHeight);
-    void RenderScene();
+    void RenderFrame();
     void SetViewMatrix(const glm::mat4& viewMat);
     bool CreateMesh(const MeshCreateInfo& createInfo, const string& meshName);
     bool DeleteMesh(const string& meshName);

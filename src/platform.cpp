@@ -37,6 +37,7 @@ SDL_Window* Platform::GetSDLWindow() const {
 void Platform::HandleEvents() {
     SDL_Event evt;
     while (SDL_PollEvent(&evt)) {
+        ImGui_ImplSDL3_ProcessEvent(&evt);
         switch (evt.type) {
             case SDL_EVENT_QUIT:
                 if (m_quitCallback) m_quitCallback(evt);
