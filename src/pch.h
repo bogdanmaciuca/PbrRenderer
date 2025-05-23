@@ -3,13 +3,14 @@
 #include <string>
 #include <vector>
 #include <span>
-#include "unordered_map"
+#include <unordered_map>
 #include <algorithm>
 #include <cstdint>
 #include <array>
 #include <chrono>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -32,6 +33,8 @@ template<typename T, size_t size> using array = std::array<T, size>;
 template<typename T> using vector = std::vector<T>;
 template<typename T, size_t size> using span = std::span<T, size>;
 template<typename Key, typename T> using umap = std::unordered_map<Key, T>;
+template<typename T> using unique = std::unique_ptr<T>;
+template<typename T> using shared = std::shared_ptr<T>;
 
 void Error(const string& message);
 void FatalError(const string& message);

@@ -8,13 +8,22 @@ Platform::Platform(const string& wndName, i32 wndWidth, i32 wndHeight)
     if (SDL_Init(SDL_INIT_VIDEO) == false)
         FatalError("Could not initialize SDL");
 
-    m_pWindow = SDL_CreateWindow(wndName.c_str(), wndWidth, wndHeight, SDL_WINDOW_VULKAN);
+    SDL_WindowFlags windowFlags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
+    m_pWindow = SDL_CreateWindow(wndName.c_str(), wndWidth, wndHeight, windowFlags);
     if (m_pWindow == nullptr)
         FatalError("Could not create window");
 }
 
 Platform::~Platform() {
     SDL_DestroyWindow(m_pWindow);
+}
+
+void Platform::SetQuitCallback(const EventCallback& callback) {
+    m_quitCallback = callback;
+}
+
+void Platform::SetResizeCallback(const EventCallback& callback) {
+    m_resizeCallback = callback;
 }
 
 bool Platform::ShouldClose() const {
@@ -30,7 +39,12 @@ void Platform::HandleEvents() {
     while (SDL_PollEvent(&evt)) {
         switch (evt.type) {
             case SDL_EVENT_QUIT:
-                m_shouldClose = true;
+                if (m_quitCallback) m_quitCallback(evt);
+                break;
+            case SDL_EVENT_WINDOW_RESIZED:
+                SDL_GetWindowSurface(m_pWindow);
+                SDL_UpdateWindowSurface(m_pWindow);
+                if (m_resizeCallback) m_resizeCallback(evt);
                 break;
         }
     }

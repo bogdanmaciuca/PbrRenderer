@@ -31,22 +31,28 @@ void Renderer::Initialize(SDL_Window* pWindow, u32 width, u32 height) {
             .stage  = SDL_GPU_SHADERSTAGE_FRAGMENT,
             .source = ReadFile("C:/Users/Bogdan/Documents/C_Projects/PbrRenderer/shaders_compiled/basic.frag.spv"),
             .numSamplers       = 3,
-            .numUniformBuffers = 1
+            .numStorageBuffers = 1
         }
     };
     m_pipeline.Initialize(pipelineCreateInfo);
 
-    m_proj = glm::perspective(glm::radians(FOV_DEG), (float)width / height, CAM_NEAR, CAM_FAR);
-
+    UpdateProjection(width, height);
 
     ImmediateCmdBuf([&](SDL_GPUCommandBuffer* pCmdBuf) {
+        // Depth texture
         TextureCreateInfo depthTextureCreateInfo;
         depthTextureCreateInfo.usage  = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
         depthTextureCreateInfo.format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
         depthTextureCreateInfo.data.width  = width;
         depthTextureCreateInfo.data.height = height;
-
         m_depthTexture.Initialize(depthTextureCreateInfo);
+
+        // Storage buffer for vertex shader frame data
+        m_fragmentShaderFrameDataBuffer.Initialize(
+            pCmdBuf,
+            SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
+            sizeof(FragmentShaderFrameData)
+        );
     });
 }
 
@@ -55,8 +61,25 @@ Renderer::~Renderer() {
     SDL_DestroyGPUDevice(GetDevice());
 }
 
+void Renderer::HandleResize(u32 newWidth, u32 newHeight) {
+    UpdateProjection(newWidth, newHeight);
+
+    ImmediateCmdBuf([&](SDL_GPUCommandBuffer* pCmdBuf) {
+        TextureCreateInfo depthTextureCreateInfo;
+        depthTextureCreateInfo.usage  = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+        depthTextureCreateInfo.format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+        depthTextureCreateInfo.data.width  = newWidth;
+        depthTextureCreateInfo.data.height = newHeight;
+
+        m_depthTexture.Release();
+        m_depthTexture.Initialize(depthTextureCreateInfo);
+    });
+}
+
 void Renderer::RenderScene() {
     SDL_GPUCommandBuffer* pCmdBuf = SDL_AcquireGPUCommandBuffer(GetDevice());
+
+    UpdateFragmentShaderFrameData(pCmdBuf);
 
     // Get swapchain texture
     SDL_GPUTexture* pSwapchainTexture;
@@ -90,17 +113,19 @@ void Renderer::RenderScene() {
     // Bind pipeline
     SDL_BindGPUGraphicsPipeline(pRenderPass, m_pipeline.GetHandle());
 
-    // View-projection Uniforms. NOTE: order matters 0.model, 1.view, 2.projection
-    SDL_PushGPUVertexUniformData(pCmdBuf, 1, &m_view, sizeof(m_view));
-    SDL_PushGPUVertexUniformData(pCmdBuf, 2, &m_proj, sizeof(m_proj));
-    
-    // Point light position uniform
-    SDL_PushGPUFragmentUniformData(pCmdBuf, 0, &m_lightingData, sizeof(m_lightingData));
+    // Vertex shader frame data
+    constexpr u32 projSlotIdx = 0;
+    constexpr u32 viewSlotIdx = 2;
+    SDL_PushGPUVertexUniformData(pCmdBuf, viewSlotIdx, &m_view, sizeof(Mat4));
+    // Bind other stuff (temporary; TODO: only do these when the information is updated)
+    SDL_PushGPUVertexUniformData(pCmdBuf, projSlotIdx, &m_proj, sizeof(Mat4));
+
+    // Fragment shader frame data
+    PushFragmentShaderFrameData(pRenderPass);
 
     // Draw meshes
-    for (auto& it : m_meshes) {
+    for (auto& it : m_meshes)
         DrawMesh(it.second, pRenderPass, pCmdBuf);
-    }
 
     SDL_EndGPURenderPass(pRenderPass);
 
@@ -168,12 +193,17 @@ Renderer::Mat4* Renderer::GetMeshTransform(const string& meshName) {
     return &m_meshes[meshName].transform;
 }
 
-void Renderer::SetLightPos(const Vec3& pos) {
-    m_lightingData.lightPos = pos;
+void Renderer::SetCameraPos(const Vec3& camPos) {
+    m_fragmentShaderFrameData.camPos = camPos;
 }
 
-void Renderer::SetCameraPos(const Vec3& pos) {
-    m_lightingData.camPos = pos;
+void Renderer::PushPointLight(const PointLight& pointLight) {
+    SDL_assert(m_fragmentShaderFrameData.pointLightNum < MAX_POINT_LIGHT_NUM);
+    m_fragmentShaderFrameData.pointLights[m_fragmentShaderFrameData.pointLightNum++] = pointLight;
+}
+
+void Renderer::ClearPointLights() {
+    m_fragmentShaderFrameData.pointLightNum = 0;
 }
 
 void Renderer::Shader::Initialize(const ShaderCreateInfo& createInfo) {
@@ -362,7 +392,12 @@ void Renderer::Texture::Initialize(const TextureCreateInfo& createInfo) {
         FatalError("Could not create texture");
 }
 Renderer::Texture::~Texture() {
-    SDL_ReleaseGPUTexture(GetDevice(), m_pHandle);
+    Release();
+}
+void Renderer::Texture::Release() {
+    if (m_pHandle != nullptr)
+        SDL_ReleaseGPUTexture(GetDevice(), m_pHandle);
+    m_pHandle = nullptr;
 }
 SDL_GPUTexture* Renderer::Texture::GetHandle() const {
     return m_pHandle;
@@ -398,12 +433,6 @@ void Renderer::Texture::Upload(SDL_GPUCommandBuffer* pCmdBuf, const TextureData&
     Upload(pCmdBuf, uploadBuf, data);
 }
 
-void Renderer::ImmediateCmdBuf(CommandBufferFunction function) {
-    SDL_GPUCommandBuffer* pCmdBuf = SDL_AcquireGPUCommandBuffer(GetDevice());
-    function(pCmdBuf);
-    SDL_SubmitGPUCommandBuffer(pCmdBuf);
-}
-
 SDL_GPUDevice*& Renderer::GetDevice() {
     static SDL_GPUDevice* pDevice;
     return pDevice;
@@ -411,6 +440,30 @@ SDL_GPUDevice*& Renderer::GetDevice() {
 SDL_Window*& Renderer::GetWindow() {
     static SDL_Window* pWindow;
     return pWindow;
+}
+
+void Renderer::ImmediateCmdBuf(CommandBufferFunction function) {
+    SDL_GPUCommandBuffer* pCmdBuf = SDL_AcquireGPUCommandBuffer(GetDevice());
+    function(pCmdBuf);
+    SDL_SubmitGPUCommandBuffer(pCmdBuf);
+}
+
+void Renderer::UpdateProjection(u32 width, u32 height) {
+    m_proj = glm::perspective(glm::radians(FOV_DEG), (float)width / height, CAM_NEAR, CAM_FAR);
+}
+
+void Renderer::UpdateFragmentShaderFrameData(SDL_GPUCommandBuffer* pCmdBuf) {
+    m_fragmentShaderFrameDataBuffer.Upload(
+        pCmdBuf,
+        &m_fragmentShaderFrameData,
+        sizeof(FragmentShaderFrameData)
+    );
+}
+
+void Renderer::PushFragmentShaderFrameData(SDL_GPURenderPass* pRenderPass) {
+    constexpr u32 SHADER_FRAME_DATA_SLOT_IDX = 0; // why tf does this work when binding = 3 in shader???
+    SDL_GPUBuffer* pBufferRawPtr = m_fragmentShaderFrameDataBuffer.GetHandle();
+    SDL_BindGPUFragmentStorageBuffers(pRenderPass, SHADER_FRAME_DATA_SLOT_IDX, &pBufferRawPtr, 1);
 }
 
 void Renderer::DrawMesh(const Mesh& mesh, SDL_GPURenderPass* pRenderPass, SDL_GPUCommandBuffer* pCmdBuf) {
@@ -440,9 +493,8 @@ void Renderer::DrawMesh(const Mesh& mesh, SDL_GPURenderPass* pRenderPass, SDL_GP
     SDL_BindGPUIndexBuffer(pRenderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
     // Model uniform
-    Mat4 model(1.0f);
-    //model = glm::translate(model, mesh.pos);
-    SDL_PushGPUVertexUniformData(pCmdBuf, 0, &model, sizeof(model));
+    constexpr u32 modelSlotIdx = 1;
+    SDL_PushGPUVertexUniformData(pCmdBuf, modelSlotIdx, &mesh.transform, sizeof(Mat4));
 
     SDL_DrawGPUIndexedPrimitives(pRenderPass, mesh.indicesNum, 1, 0, 0, 0);
 }
